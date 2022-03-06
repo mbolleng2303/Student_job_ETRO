@@ -23,9 +23,9 @@ class GraphSageNet(nn.Module):
         super().__init__()
 
         in_dim_node = 1024  # node_dim (feat is an integer)
-        hidden_dim = 1024 #net_params['hidden_dim']
-        out_dim = 10
-        n_classes = 4
+        hidden_dim = 512 #net_params['hidden_dim']
+        out_dim = 256
+        n_classes = 2
         in_feat_dropout = net_params['in_feat_dropout']
         dropout = net_params['dropout']
         aggregator_type = net_params['sage_aggregator']
@@ -43,7 +43,7 @@ class GraphSageNet(nn.Module):
                                                     dropout, aggregator_type, batch_norm, residual) for _ in
                                      range(n_layers - 1)])
         self.layers.append(GraphSageLayer(hidden_dim, out_dim, F.relu, dropout, aggregator_type, batch_norm, residual))
-        self.MLP_layer = MLPReadout(out_dim, 4)
+        self.MLP_layer = MLPReadout(out_dim,n_classes)
 
     def forward(self, g, h, e):
         # input embedding
@@ -71,7 +71,7 @@ class GraphSageNet(nn.Module):
         weight *= (cluster_sizes > 0).float()
         """
         # weighted cross-entropy for unbalanced classes
-        loss = torch.nn.functional.l1_loss(pred,label, size_average=None, reduce=None, reduction='mean')
+        loss = torch.nn.functional.cross_entropy(pred.float(), label.float())
         #loss = criterion(pred, label)
 
         return loss

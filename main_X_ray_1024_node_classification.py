@@ -104,7 +104,7 @@ def train_val_pipeline(MODEL_NAME, DATASET_NAME, params, net_params, dirs):
 
     # At any point you can hit Ctrl + C to break out of training early.
     try:
-        for split_number in range(5):
+        for split_number in range(4):
 
             t0_split = time.time()
             log_dir = os.path.join(root_log_dir, "RUN_" + str(split_number))
@@ -228,7 +228,7 @@ def train_val_pipeline(MODEL_NAME, DATASET_NAME, params, net_params, dirs):
 
                     # Stop training after params['max_time'] hours
                     if time.time() - t0_split > params[
-                        'max_time'] * 3600 / 10:  # Dividing max_time by 10, since there are 10 runs in TUs
+                        'max_time'] * 3600 / 5:  # Dividing max_time by 5, since there are 5 runs
                         print('-' * 89)
                         print(
                             "Max_time for one train-val-test split experiment elapsed {:.3f} hours, so stopping".format(
@@ -281,7 +281,7 @@ def main():
     """
 
     parser = argparse.ArgumentParser()
-    parser.add_argument('--config', default = "C:/Users/Surface/PycharmProjects/Student_job/configs/X_ray_1024_GraphSage_node_classification.json", help="Please give a config.json file with training/model/data/param details")
+    parser.add_argument('--config', default = "C:/Users/Surface/PycharmProjects/Student_job_ETRO/configs/X_ray_1024_GraphSage_node_classification.json", help="Please give a config.json file with training/model/data/param details")
     parser.add_argument('--gpu_id', help="Please give a value for gpu id")
     parser.add_argument('--model', help="Please give a value for model name")
     parser.add_argument('--dataset', help="Please give a value for dataset name")
@@ -337,7 +337,7 @@ def main():
         DATASET_NAME = args.dataset
     else:
         DATASET_NAME = config['dataset']
-    dataset = LoadData(DATASET_NAME)
+    #dataset = LoadData(DATASET_NAME)
     if args.out_dir is not None:
         out_dir = args.out_dir
     else:
@@ -417,13 +417,8 @@ def main():
         net_params['pos_enc_dim'] = int(args.pos_enc_dim)
 
     net_params['in_dim'] = 1024  # node_dim (feat is an integer)
-    net_params['n_classes'] = 4
+    net_params['n_classes'] = 2
     # RingGNN
-    if MODEL_NAME == 'RingGNN':
-        num_nodes_train = [dataset.train[0][i][0].number_of_nodes() for i in range(len(dataset.train))]
-        num_nodes_test = [dataset.test[0][i][0].number_of_nodes() for i in range(len(dataset.test))]
-        num_nodes = num_nodes_train + num_nodes_test
-        net_params['avg_node_num'] = int(np.ceil(np.mean(num_nodes)))
 
     # RingGNN, 3WLGNN
     if MODEL_NAME in ['RingGNN', '3WLGNN']:

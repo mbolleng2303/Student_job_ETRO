@@ -15,6 +15,7 @@ class MLPReadout(nn.Module):
         list_FC_layers.append(nn.Linear(input_dim // 2 ** L, output_dim, bias=True))
         self.FC_layers = nn.ModuleList(list_FC_layers)
         self.L = L
+        self.output_dim = output_dim
 
     def forward(self, x):
         y = x
@@ -22,4 +23,5 @@ class MLPReadout(nn.Module):
             y = self.FC_layers[l](y)
             y = F.relu(y)
         y = self.FC_layers[self.L](y)
+        y = F.softmax(y,dim=1)
         return y
