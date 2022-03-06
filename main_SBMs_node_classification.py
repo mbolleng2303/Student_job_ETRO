@@ -256,7 +256,7 @@ def main():
 
     parser = argparse.ArgumentParser()
     parser.add_argument('--config', help="Please give a config.json file with training/model/data/param details",
-                        default='C:/Users/Surface/PycharmProjects/Student_job/configs/SBMs_node_clustering_GraphSage_CLUSTER_100k.json')
+                        default='C:/Users/Surface/PycharmProjects/Student_job_ETRO/configs/SBMs_node_clustering_GraphSage_CLUSTER_100k.json')
     parser.add_argument('--gpu_id', help="Please give a value for gpu id")
     parser.add_argument('--model', help="Please give a value for model name")
     parser.add_argument('--dataset', help="Please give a value for dataset name")
