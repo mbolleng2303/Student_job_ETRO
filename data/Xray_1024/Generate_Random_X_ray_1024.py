@@ -2,12 +2,12 @@
 import numpy as np
 from sklearn.cluster import AffinityPropagation
 
-nbr_graphs = 100
-nbr_node = 10# int(100*np.random.rand(nbr_graphs))
+nbr_graphs = 4
+nbr_node = 20# int(100*np.random.rand(nbr_graphs))
 # create a dummy array
 arr = np.random.rand(1024, nbr_graphs,nbr_node )
-for k in range (nbr_graphs) :
-    for i in range(nbr_node) :
+for k in range (1024) :
+    for i in range(nbr_graphs) :
         for j in range(nbr_node):
             arr[k,i,j]=int(100*arr[k,i,j])
 # use the tofile() method
@@ -57,22 +57,7 @@ label.tofile('X_ray_1024_label.csv', sep=',')
 # using loadtxt()
 label2 = np.reshape(np.loadtxt('X_ray_1024_label.csv',
                  delimiter=",", dtype=float), (1,nbr_graphs,nbr_node))
-a = 5
 
-
-
-# credit to Stack Overflow user in the source link
-import numpy as np
-from sklearn.metrics.pairwise import cosine_distances
-
-# some dummy data
-word_vectors = ((1, 39),((1, 39)))
-
-word_cosine = cosine_distances(word_vectors)
-affprop = AffinityPropagation(affinity = 'precomputed', damping = 0.5)
-af = affprop.fit(word_cosine)
-
-b=2
 
 
 
