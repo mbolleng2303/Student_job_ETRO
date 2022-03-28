@@ -1,3 +1,5 @@
+import dgl
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -5,6 +7,10 @@ import torch.nn.functional as F
 import dgl.function as fn
 from dgl.nn.pytorch import SAGEConv
 
+import warnings
+warnings.filterwarnings('ignore', '.*User provided device_type of \'cuda\', but CUDA is not available. Disabling.*', )
+
+'User provided device_type of \'cuda\', but CUDA is not available. Disabling'
 """
     GraphSAGE: 
     William L. Hamilton, Rex Ying, Jure Leskovec, Inductive Representation Learning on Large Graphs (NeurIPS 2017)
@@ -16,7 +22,7 @@ class GraphSageLayer(nn.Module):
 
     def __init__(self, in_feats, out_feats, activation, dropout,
                  aggregator_type, batch_norm, residual=False,
-                 bias=True, dgl_builtin=False):
+                 bias=True, dgl_builtin=True):
         super().__init__()
         self.in_channels = in_feats
         self.out_channels = out_feats
@@ -47,7 +53,7 @@ class GraphSageLayer(nn.Module):
         if self.batch_norm:
             self.batchnorm_h = nn.BatchNorm1d(out_feats)
 
-    def forward(self, g, h):
+    def forward(self, g, h ,e = None):
         h_in = h  # for residual connection
 
         if self.dgl_builtin == False:
@@ -68,7 +74,11 @@ class GraphSageLayer(nn.Module):
                 g.update_all(fn.copy_src('h', 'm'), fn.mean('m', 'c'), self.nodeapply)
             h = g.ndata['h']
         else:
-            h = self.sageconv(g, h)
+            if e is not None:
+
+                h = self.sageconv(g, h,e)
+            else:
+                h = self.sageconv(g, h)
 
         if self.batch_norm:
             h = self.batchnorm_h(h)
@@ -151,7 +161,7 @@ class LSTMAggregator(Aggregator):
         self.hidden_dim = hidden_feats
         self.hidden = self.init_hidden()
 
-        nn.init.xavier_uniform_(self.lstm.weight,
+        nn.init.xavier_uniform_(self.lstm.weight_hh_l0,
                                 gain=nn.init.calculate_gain('relu'))
 
     def init_hidden(self):
@@ -191,7 +201,7 @@ class NodeApply(nn.Module):
 
     def concat(self, h, aggre_result):
         bundle = torch.cat((h, aggre_result), 1)
-        bundle = self.linear(bundle)
+        bundle = self.linear(bundle.float())
         return bundle
 
     def forward(self, node):
@@ -221,6 +231,8 @@ class GraphSageLayerEdgeFeat(nn.Module):
         self.out_channels = out_feats
         self.batch_norm = batch_norm
         self.residual = residual
+        if aggregator_type == "lstm":
+            self.aggregator = LSTMAggregator(in_feats, in_feats)
 
         if in_feats != out_feats:
             self.residual = False
@@ -231,6 +243,7 @@ class GraphSageLayerEdgeFeat(nn.Module):
 
         self.A = nn.Linear(in_feats, out_feats, bias=bias)
         self.B = nn.Linear(in_feats, out_feats, bias=bias)
+        #self.C = nn.Linear(in_feats, out_feats, bias=bias)
 
         self.nodeapply = NodeApply(in_feats, out_feats, activation, dropout, bias=bias)
 
@@ -239,8 +252,8 @@ class GraphSageLayerEdgeFeat(nn.Module):
 
     def message_func(self, edges):
         Ah_j = edges.src['Ah']
-        e_ij = edges.src['Bh'] + edges.dst['Bh']  # e_ij = Bhi + Bhj
-        edges.data['e'] = e_ij
+        e_ij = edges.src['Bh'] + edges.dst['Bh']
+
         return {'Ah_j': Ah_j, 'e_ij': e_ij}
 
     def reduce_func(self, nodes):
@@ -248,22 +261,26 @@ class GraphSageLayerEdgeFeat(nn.Module):
 
         Ah_j = nodes.mailbox['Ah_j']
         e = nodes.mailbox['e_ij']
-        sigma_ij = torch.sigmoid(e)  # sigma_ij = sigmoid(e_ij)
-
-        Ah_j = sigma_ij * Ah_j
+        sigma_ij = torch.sigmoid(e)# sigma_ij = sigmoid(e_ij)
+        a = sigma_ij.size()[0]
+        b= sigma_ij.size()[1]
+        sigma_ij = torch.tensor(np.reshape(sigma_ij.detach().numpy(),(a,b,1)))
+        sigma_ij= sigma_ij.expand(a, b, self.out_channels)
+        Ah_j = Ah_j *sigma_ij
         if self.activation:
             Ah_j = self.activation(Ah_j)
 
-        c = torch.max(Ah_j, dim=1)[0]
+        c = torch.mean(Ah_j, dim=1)
         return {'c': c}
 
-    def forward(self, g, h):
+    def forward(self, g, h, e):
         h_in = h  # for residual connection
         h = self.dropout(h)
 
         g.ndata['h'] = h
         g.ndata['Ah'] = self.A(h)
         g.ndata['Bh'] = self.B(h)
+        g.edata['eij'] = e
         g.update_all(self.message_func,
                      self.reduce_func,
                      self.nodeapply)
@@ -273,7 +290,7 @@ class GraphSageLayerEdgeFeat(nn.Module):
             h = self.batchnorm_h(h)
 
         if self.residual:
-            h = h_in + h  # residual connection
+            h = h_in + h # residual connection
 
         return h
 
@@ -286,12 +303,24 @@ class GraphSageLayerEdgeFeat(nn.Module):
 
 
 ##############################################################
+def sqrtcos (h1,h2):
+    h1 = h1.detach().numpy()
+    h2 = h2.detach().numpy()
+    sum = (abs(np.sum(h1))**0.5)*(abs(np.sum(h2))**0.5)
+    sqrt = (np.sum(h1*h2))**0.5
+    res = torch.tensor(sqrt/sum)
+    return (torch.tensor(sqrt/sum))
 
+def softmax_kl(input1, input2):
+    assert input1.size() == input2.size()
+    input_log_softmax = F.log_softmax(input1, dim=1)
+    target_softmax = F.softmax(input2, dim=1)
+    return F.kl_div(input_log_softmax, target_softmax, reduction='sum')
 
 class GraphSageLayerEdgeReprFeat(nn.Module):
 
     def __init__(self, in_feats, out_feats, activation, dropout,
-                 aggregator_type, batch_norm, residual=False,
+                  batch_norm,aggregator_type="lstm", residual=False,
                  bias=True, dgl_builtin=False):
         super().__init__()
         self.in_channels = in_feats
@@ -302,6 +331,7 @@ class GraphSageLayerEdgeReprFeat(nn.Module):
         if in_feats != out_feats:
             self.residual = False
 
+        #self.aggregator = LSTMAggregator(in_feats, in_feats)
         self.dropout = nn.Dropout(p=dropout)
 
         self.activation = activation
@@ -318,7 +348,7 @@ class GraphSageLayerEdgeReprFeat(nn.Module):
 
     def message_func(self, edges):
         Ah_j = edges.src['Ah']
-        e_ij = edges.data['Ce'] + edges.src['Bh'] + edges.dst['Bh']  # e_ij = Ce_ij + Bhi + Bhj
+        e_ij = edges.data['e']#edges.data['Ce'] + sqrtcos(edges.src['Bh'], edges.dst['Bh'])# e_ij = Ce_ij + Bhi + Bhj
         edges.data['e'] = e_ij
         return {'Ah_j': Ah_j, 'e_ij': e_ij}
 
@@ -327,25 +357,29 @@ class GraphSageLayerEdgeReprFeat(nn.Module):
 
         Ah_j = nodes.mailbox['Ah_j']
         e = nodes.mailbox['e_ij']
-        sigma_ij = torch.sigmoid(e)  # sigma_ij = sigmoid(e_ij)
+        sigma_ij = e#torch.sigmoid(e)  # sigma_ij = sigmoid(e_ij)
 
         Ah_j = sigma_ij * Ah_j
         if self.activation:
             Ah_j = self.activation(Ah_j)
 
-        c = torch.max(Ah_j, dim=1)[0]
+        c = torch.mean(Ah_j, dim=1)#self.aggregator.aggre(Ah_j)
         return {'c': c}
 
-    def forward(self, g, h, e):
-        h_in = h  # for residual connection
-        e_in = e
-        h = self.dropout(h)
+    def forward(self, g, h, e, idx = 5):
 
-        g.ndata['h'] = h
+
+        #g = dgl.sampling.sample_neighbors(g, list(range(0, g.ndata['h'].size()[0])), 10)
+        #g = dgl.sampling.select_topk(g,idx, 'e')
+        h_in = g.ndata['h']  # for residual connection
+        e_in = g.edata['e']
+        h = g.ndata['h']
+        h = self.dropout(h)
         g.ndata['Ah'] = self.A(h)
         g.ndata['Bh'] = self.B(h)
-        g.edata['e'] = e
-        g.edata['Ce'] = self.C(e)
+        e =g.edata['e']
+        res = e
+        g.edata['Ce'] = self.C(res.float())
         g.update_all(self.message_func,
                      self.reduce_func,
                      self.nodeapply)
@@ -361,7 +395,8 @@ class GraphSageLayerEdgeReprFeat(nn.Module):
 
         if self.residual:
             h = h_in + h  # residual connection
-            e = e_in + e  # residual connection
+            e = e_in + e
+            e = e.clone().detach() # residual connection
 
         return h, e
 

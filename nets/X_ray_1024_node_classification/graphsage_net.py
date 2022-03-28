@@ -1,3 +1,4 @@
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -10,7 +11,7 @@ import dgl
     https://cs.stanford.edu/people/jure/pubs/graphsage-nips17.pdf
 """
 
-from layers.graphsage_layer import GraphSageLayer
+from layers.graphsage_layer import GraphSageLayer as GraphSageLayer
 from layers.mlp_readout_layer import MLPReadout
 
 
@@ -23,9 +24,10 @@ class GraphSageNet(nn.Module):
         super().__init__()
 
         in_dim_node = 1024  # node_dim (feat is an integer)
-        hidden_dim = 512 #net_params['hidden_dim']
-        out_dim = 256
+        hidden_dim = net_params['hidden_dim']
+        out_dim = net_params['out_dim']
         n_classes = 2
+        self.layer_type = 'edge'
         in_feat_dropout = net_params['in_feat_dropout']
         dropout = net_params['dropout']
         aggregator_type = net_params['sage_aggregator']
@@ -37,6 +39,7 @@ class GraphSageNet(nn.Module):
         self.device = net_params['device']
 
         self.embedding_h = nn.Linear(in_dim_node, hidden_dim) # node feat is an integer
+        self.embedding_e = nn.Linear(1, hidden_dim)
         self.in_feat_dropout = nn.Dropout(in_feat_dropout)
 
         self.layers = nn.ModuleList([GraphSageLayer(hidden_dim, hidden_dim, F.relu,
@@ -47,17 +50,44 @@ class GraphSageNet(nn.Module):
 
     def forward(self, g, h, e):
         # input embedding
+
+        #torch.set_default_dtype(torch.float64)
+        #g = dgl.sampling.sample_neighbors(g, list(range(0, g.ndata['feat'].size()[0])), 30)
+        #g = dgl.khop_graph(g, 1)
+        #g = dgl.sampling.select_topk(g, 100, 'feat')
+        h = g.ndata['feat']
         h = self.embedding_h(h.float())
         h = self.in_feat_dropout(h)
+        e = g.edata['feat']
+        e = self.embedding_e(np.reshape(e, (-1, 1)).float())
+        #e = self.in_feat_dropout(e)
 
         # graphsage
-        for conv in self.layers:
-            h = conv(g, h)
+        g.ndata['h'] = h
+        g.edata['e'] = e
+        if self.layer_type != 'edge' :
 
-        # output
-        h_out = self.MLP_layer(h)
+            for conv in self.layers:
+                h = conv(g, h)
 
-        return h_out
+            # output
+            h_out = self.MLP_layer(h)
+
+            return h_out
+        else:
+            i=11
+            for conv in self.layers:
+                #torch.set_default_dtype(torch.float64)
+
+                #g = dgl.sampling.select_topk(g, 7, 'e')
+                h = conv(g, h, e)
+
+            # output
+            h_out = self.MLP_layer(h)
+
+            return h_out
+
+
 
     def loss(self, pred, label):
         """
@@ -71,8 +101,16 @@ class GraphSageNet(nn.Module):
         weight *= (cluster_sizes > 0).float()
         """
         # weighted cross-entropy for unbalanced classes
-        loss = torch.nn.functional.cross_entropy(pred.float(), label.float())
-        #loss = criterion(pred, label)
+        V = label.size(0)
+
+        label_count = torch.bincount(np.reshape(label[:,1],(-1)))
+        label_count = label_count[label_count.nonzero()].squeeze()
+        cluster_sizes = torch.zeros(self.n_classes).long().to(self.device)
+        cluster_sizes[torch.unique(label)] = label_count
+        weight = (V - cluster_sizes).float() / V
+        weight *= (cluster_sizes > 0).float()
+        criterion = torch.nn.CrossEntropyLoss(weight=weight)
+        loss = criterion(pred.float(), label.float())
 
         return loss
 

@@ -23,5 +23,5 @@ class MLPReadout(nn.Module):
             y = self.FC_layers[l](y)
             y = F.relu(y)
         y = self.FC_layers[self.L](y)
-        y = F.softmax(y,dim=1)
+        y = F.softmax(y, dim=1)
         return y
