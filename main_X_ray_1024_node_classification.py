@@ -75,7 +75,7 @@ def view_model_param(MODEL_NAME, net_params):
 """
 
 
-def train_val_pipeline(MODEL_NAME, DATASET_NAME, params, net_params, dirs):
+def train_val_pipeline(MODEL_NAME, DATASET_NAME, params, net_params, dirs,edge=False):
     avg_test_acc = []
     avg_train_acc = []
     avg_epochs = []
@@ -83,7 +83,7 @@ def train_val_pipeline(MODEL_NAME, DATASET_NAME, params, net_params, dirs):
     t0 = time.time()
     per_epoch_time = []
 
-    dataset = LoadData(DATASET_NAME)
+    dataset = LoadData(DATASET_NAME, edge = edge)
 
     if MODEL_NAME in ['GCN', 'GAT']:
         if net_params['self_loop']:
@@ -131,7 +131,7 @@ def train_val_pipeline(MODEL_NAME, DATASET_NAME, params, net_params, dirs):
             scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min',
                                                              factor=params['lr_reduce_factor'],
                                                              patience=params['lr_schedule_patience'],
-                                                             verbose=True)
+                                                             verbose=True, min_lr=params['min_lr'])
 
             epoch_train_losses, epoch_val_losses = [], []
             epoch_train_accs, epoch_val_accs = [], []
@@ -189,7 +189,18 @@ def train_val_pipeline(MODEL_NAME, DATASET_NAME, params, net_params, dirs):
                     epoch_val_losses.append(epoch_val_loss)
                     epoch_train_accs.append(epoch_train_acc)
                     epoch_val_accs.append(epoch_val_acc)
-
+                    """
+                    try :
+                        if epoch_val_loss < epoch_val_losses[-2]:
+                            nbr_nochange = 0
+                            save = True
+                        else :
+                            nbr_nochange+=1
+                            save = True
+                    except IndexError:
+                        nbr_nochange = 0
+                        save = True
+                    """
                     writer.add_scalar('train/_loss', epoch_train_loss, epoch)
                     writer.add_scalar('val/_loss', epoch_val_loss, epoch)
                     writer.add_scalar('train/_acc', epoch_train_acc, epoch)
@@ -208,6 +219,7 @@ def train_val_pipeline(MODEL_NAME, DATASET_NAME, params, net_params, dirs):
                     per_epoch_time.append(time.time() - start)
 
                     # Saving checkpoint
+                    #if save :
                     ckpt_dir = os.path.join(root_ckpt_dir, "RUN_" + str(split_number))
                     if not os.path.exists(ckpt_dir):
                         os.makedirs(ckpt_dir)
@@ -218,13 +230,14 @@ def train_val_pipeline(MODEL_NAME, DATASET_NAME, params, net_params, dirs):
                         epoch_nb = file.split('_')[-1]
                         epoch_nb = int(epoch_nb.split('.')[0])
                         if epoch_nb < epoch - 1:
-                            os.remove(file)
+                             os.remove(file)
 
                     scheduler.step(epoch_val_loss)
 
-                    if optimizer.param_groups[0]['lr'] < params['min_lr']:
-                        print("\n!! LR EQUAL TO MIN LR SET.")
+                    if optimizer.param_groups[0]['lr'] <= params['min_lr']:
                         break
+                        print('LR min')
+
 
                     # Stop training after params['max_time'] hours
                     if time.time() - t0_split > params[
@@ -241,13 +254,18 @@ def train_val_pipeline(MODEL_NAME, DATASET_NAME, params, net_params, dirs):
             avg_train_acc.append(train_acc)
             avg_epochs.append(epoch)
 
+            np.array(epoch_train_losses).tofile('train_loss',sep = ',')
+            np.array(epoch_val_losses).tofile('val_loss',sep = ',')
+            np.array(epoch_train_accs).tofile('train_acc',sep = ',')
+            np.array(epoch_val_accs).tofile('val_acc',sep = ',')
+
             print("Test Accuracy [LAST EPOCH]: {:.4f}".format(test_acc))
             print("Train Accuracy [LAST EPOCH]: {:.4f}".format(train_acc))
+
 
     except KeyboardInterrupt:
         print('-' * 89)
         print('Exiting from training early because of KeyboardInterrupt')
-
     print("TOTAL TIME TAKEN: {:.4f}hrs".format((time.time() - t0) / 3600))
     print("AVG TIME PER EPOCH: {:.4f}s".format(np.mean(per_epoch_time)))
 
@@ -273,8 +291,6 @@ def train_val_pipeline(MODEL_NAME, DATASET_NAME, params, net_params, dirs):
                         np.mean(np.array(avg_train_acc)) * 100, np.std(avg_train_acc) * 100,
                         np.mean(np.array(avg_epochs)),
                         (time.time() - t0) / 3600, np.mean(per_epoch_time), avg_test_acc, avg_train_acc))
-
-
 def main():
     """
         USER CONTROLS
@@ -444,7 +460,7 @@ def main():
         os.makedirs(out_dir + 'configs')
 
     net_params['total_param'] = view_model_param(MODEL_NAME, net_params)
-    train_val_pipeline(MODEL_NAME, DATASET_NAME, params, net_params, dirs)
+    train_val_pipeline(MODEL_NAME, DATASET_NAME, params, net_params, dirs,edge=False)
 
 
 main()

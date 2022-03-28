@@ -1,3 +1,6 @@
+import os
+
+import pandas as pd
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -5,12 +8,32 @@ import torch.nn.functional as F
 from sklearn.metrics import confusion_matrix, roc_curve, auc
 from sklearn.metrics import f1_score
 import numpy as np
+from matplotlib import pyplot as plt
 
-def AUC(scores,targets):
-    scores = np.reshape(scores.detach().numpy(), [-1])
-    targets = np.reshape(targets.detach().numpy(), [-1])
-    fpr, tpr, thresholds = roc_curve(targets, scores)
-    roc_auc = auc(fpr, tpr)
+def AUC(scores,targets,infer = False, infer5=False):
+    if not infer5 :
+        scores = np.reshape(scores.detach().numpy(), [-1])
+        targets = np.reshape(targets.detach().numpy(), [-1])
+        scores = scores[idx]
+        targets = targets[idx]
+        fpr, tpr, thresholds = roc_curve(targets, scores)
+        roc_auc = auc(fpr, tpr)
+        gmeans = np.sqrt(tpr * (1 - fpr))
+        ## locate the index of the largest g-mean
+        ix = np.argmax(gmeans)
+        # print('Best Threshold=%f, G-Mean=%.3f' % (thresholds[ix], gmeans[ix]))
+    else :
+        scores = scores[399]
+        targets = targets[399]
+        scores = np.reshape(scores.detach().numpy(), [-1])
+        targets = np.reshape(targets.detach().numpy(), [-1])
+        fpr, tpr, thresholds = roc_curve(targets, scores)
+        roc_auc = auc(fpr, tpr)
+
+
+
+
+
     return roc_auc
 
 def MAE(scores, targets):
